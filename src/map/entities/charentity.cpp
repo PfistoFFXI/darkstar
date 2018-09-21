@@ -155,7 +155,6 @@ CCharEntity::CCharEntity()
     m_LevelRestriction = 0;
     m_lastBcnmTimePrompt = 0;
     m_AHHistoryTimestamp = 0;
-    m_DeathCounter = 0;
     m_DeathTimestamp = 0;
 
     m_EquipFlag = 0;
@@ -969,14 +968,31 @@ void CCharEntity::OnAbility(CAbilityState& state, action_t& action)
                 auto PPetTarget = PTarget->targid;
                 if (PAbility->getID() >= ABILITY_HEALING_RUBY && PAbility->getID() <= ABILITY_PERFECT_DEFENSE)
                 {
-                    if (this->StatusEffectContainer->HasStatusEffect(EFFECT_APOGEE)) {
-                        addMP((int32)(-PAbility->getAnimationID() * 1.5));
-                        this->StatusEffectContainer->DelStatusEffectsByFlag(EFFECTFLAG_BLOODPACT);
+                    // Blood Pact mp cost stored in animation ID
+                    float mpCost = PAbility->getAnimationID();
+
+                    if (StatusEffectContainer->HasStatusEffect(EFFECT_APOGEE))
+                    {
+                        mpCost *= 1.5f;
+                        StatusEffectContainer->DelStatusEffectsByFlag(EFFECTFLAG_BLOODPACT);
                     }
-                    else {
-                        addMP(-PAbility->getAnimationID()); // TODO: ...
+
+                    // Blood Boon (does not affect Astra Flow BPs)
+                    if ((PAbility->getAddType() & ADDTYPE_ASTRAL_FLOW) == 0)
+                    {
+                        int16 bloodBoonRate = getMod(Mod::BLOOD_BOON);
+                        if (dsprand::GetRandomNumber(100) < bloodBoonRate)
+                        {
+                            mpCost *= dsprand::GetRandomNumber(8.f, 16.f) / 16.f;
+                        }
                     }
-                    if (PAbility->getValidTarget() == TARGET_SELF) { PPetTarget = PPet->targid; }
+
+                    addMP((int32)-mpCost);
+
+                    if (PAbility->getValidTarget() == TARGET_SELF)
+                    {
+                        PPetTarget = PPet->targid;
+                    }
                 }
                 else
                 {
@@ -1101,6 +1117,13 @@ void CCharEntity::OnAbility(CAbilityState& state, action_t& action)
             state.ApplyEnmity();
         }
         PRecastContainer->Add(RECAST_ABILITY, PAbility->getRecastId(), action.recast);
+
+        uint16 recastID = PAbility->getRecastId();
+        if (map_config.blood_pact_shared_timer && (recastID == 173 || recastID == 174))
+        {
+            PRecastContainer->Add(RECAST_ABILITY, (recastID == 173 ? 174 : 173), action.recast);
+        }
+
         pushPacket(new CCharRecastPacket(this));
 
         //#TODO: refactor
@@ -1565,9 +1588,8 @@ void CCharEntity::Die()
         auto PTarget = GetEntity(GetBattleTargetID());
         loc.zone->PushPacket(this, CHAR_INRANGE_SELF, new CMessageBasicPacket(PTarget, this, 0, 0, 97));
     }
-    Die(60min);
-    m_DeathCounter = 0;
-    m_DeathTimestamp = (uint32)time(nullptr);
+    Die(death_duration);
+    SetDeathTimestamp((uint32)time(nullptr));
 
     setBlockingAid(false);
 
@@ -1599,6 +1621,17 @@ void CCharEntity::Die(duration _duration)
 void CCharEntity::Raise()
 {
     PAI->Internal_Raise();
+    SetDeathTimestamp(0);
+}
+
+void CCharEntity::SetDeathTimestamp(uint32 timestamp)
+{
+    m_DeathTimestamp = timestamp;
+}
+
+int32 CCharEntity::GetSecondsElapsedSinceDeath()
+{
+    return m_DeathTimestamp > 0 ? (uint32)time(nullptr) - m_DeathTimestamp : 0;
 }
 
 void CCharEntity::TrackArrowUsageForScavenge(CItemWeapon* PAmmo)
