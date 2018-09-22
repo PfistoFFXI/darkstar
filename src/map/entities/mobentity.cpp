@@ -791,7 +791,6 @@ void CMobEntity::DistributeRewards()
     if (PChar != nullptr && PChar->id == m_OwnerID.id)
     {
 
-        loc.zone->PushPacket(this, CHAR_INRANGE, new CMessageBasicPacket(PChar, this, 0, 0, MSGBASIC_DEFEATS_TARG));
 
         if (!CalledForHelp())
         {
@@ -838,7 +837,7 @@ void CMobEntity::DropItems(CCharEntity* PChar) {
     DropList_t* DropList = itemutils::GetDropList(m_DropID);
     //ShowDebug(CL_CYAN"DropID: %u dropping with TH Level: %u\n" CL_RESET, PMob->m_DropID, PMob->m_THLvl);
 
-    if (DropList != nullptr && !getMobMod(MOBMOD_NO_DROPS) && DropList->Items.size() || DropList->Groups.size())
+    if (DropList != nullptr && !getMobMod(MOBMOD_NO_DROPS) && (DropList->Items.size() || DropList->Groups.size()))
     {
         //THLvl is the number of 'extra chances' at an item. If the item is obtained, then break out.
         uint8 maxRolls = 1 + (m_THLvl > 2 ? 2 : m_THLvl);
@@ -1049,6 +1048,11 @@ void CMobEntity::Die()
     PAI->QueueAction(queueAction_t(std::chrono::milliseconds(m_DropItemTime), false, [this](CBaseEntity* PEntity) {
         if (static_cast<CMobEntity*>(PEntity)->isDead())
         {
+            if (PLastAttacker)
+                loc.zone->PushPacket(this, CHAR_INRANGE, new CMessageBasicPacket(PLastAttacker, this, 0, 0, MSGBASIC_DEFEATS_TARG));
+            else
+                loc.zone->PushPacket(this, CHAR_INRANGE, new CMessageBasicPacket(this, this, 0, 0, MSGBASIC_FALLS_TO_GROUND));
+
             DistributeRewards();
         }
     }));
